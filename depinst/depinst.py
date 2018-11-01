@@ -14,100 +14,100 @@ import sys
 import os
 import argparse
 
-def is_module( m, gm ):
+def is_module( module, gitmodules ):
 
-    return ( 'libs/' + m ) in gm
+    return ( 'libs/' + module ) in gitmodules
 
-def module_for_header( h, x, gm ):
+def module_for_header( header, excludedmodules, gitmodules ):
 
-    if h in x:
+    if header in excludedmodules:
 
-        return x[ h ]
+        return excludedmodules[ header ]
 
     else:
 
         # boost/function.hpp
-        m = re.match( 'boost/([^\\./]*)\\.h[a-z]*$', h )
+        matches = re.match( 'boost/([^\\./]*)\\.h[a-z]*$', header )
 
-        if m and is_module( m.group( 1 ), gm ):
+        if matches and is_module( matches.group( 1 ), gitmodules ):
 
-            return m.group( 1 )
+            return matches.group( 1 )
 
         # boost/numeric/conversion.hpp
-        m = re.match( 'boost/([^/]*/[^\\./]*)\\.h[a-z]*$', h )
+        matches = re.match( 'boost/([^/]*/[^\\./]*)\\.h[a-z]*$', header )
 
-        if m and is_module( m.group( 1 ), gm ):
+        if matches and is_module( matches.group( 1 ), gitmodules ):
 
-            return m.group( 1 )
+            return matches.group( 1 )
 
         # boost/numeric/conversion/header.hpp
-        m = re.match( 'boost/([^/]*/[^/]*)/', h )
+        matches = re.match( 'boost/([^/]*/[^/]*)/', header )
 
-        if m and is_module( m.group( 1 ), gm ):
+        if matches and is_module( matches.group( 1 ), gitmodules ):
 
-            return m.group( 1 )
+            return matches.group( 1 )
 
         # boost/function/header.hpp
-        m = re.match( 'boost/([^/]*)/', h )
+        matches = re.match( 'boost/([^/]*)/', header )
 
-        if m and is_module( m.group( 1 ), gm ):
+        if matches and is_module( matches.group( 1 ), gitmodules ):
 
-            return m.group( 1 )
+            return matches.group( 1 )
 
-        print 'Cannot determine module for header', h
+        print 'Cannot determine module for header', header
 
         return None
 
-def scan_header_dependencies( f, x, gm, deps ):
+def scan_header_dependencies( file, excludedmodules, gitmodules, deps ):
 
-    for line in f:
+    for line in file:
 
-        m = re.match( '[ \t]*#[ \t]*include[ \t]*["<](boost/[^">]*)[">]', line )
+        matches = re.match( '[ \t]*#[ \t]*include[ \t]*["<](boost/[^">]*)[">]', line )
 
-        if m:
+        if matches:
 
-            h = m.group( 1 )
+            header = matches.group( 1 )
 
-            mod = module_for_header( h, x, gm )
+            module = module_for_header( header, excludedmodules, gitmodules )
 
-            if mod:
+            if module:
 
-                if not mod in deps:
+                if not module in deps:
 
-                    vprint( 'Adding dependency', mod )
-                    deps[ mod ] = 0
+                    vprint( 'Adding dependency', module )
+                    deps[ module ] = 0
 
-def scan_directory( d, x, gm, deps ):
+def scan_directory( directory, excludedmodules, gitmodules, deps ):
 
-    vprint( 'Scanning directory', d )
+    vprint( 'Scanning directory', directory )
 
     if os.name == 'nt':
-        d = unicode( d )
+        directory = unicode( directory )
 
-    for root, dirs, files in os.walk( d ):
+    for root, dirs, files in os.walk( directory ):
 
         for file in files:
 
-            fn = os.path.join( root, file )
+            fullfilename = os.path.join( root, file )
 
-            vprint( 'Scanning file', fn )
+            vprint( 'Scanning file', fullfilename )
 
-            with open( fn, 'r' ) as f:
+            with open( fullfilename, 'r' ) as f:
 
-                scan_header_dependencies( f, x, gm, deps )
+                scan_header_dependencies( f, excludedmodules, gitmodules, deps )
 
-def scan_module_dependencies( m, x, gm, deps, dirs ):
+def scan_module_dependencies( module, excludedmodules, gitmodules, deps, dirs ):
 
-    vprint( 'Scanning module', m )
+    vprint( 'Scanning module', module )
 
     for dir in dirs:
-        scan_directory( os.path.join( 'libs', m, dir ), x, gm, deps )
+        scan_directory( os.path.join( 'libs', module, dir ), excludedmodules, gitmodules, deps )
 
 def read_exceptions():
 
     # exceptions.txt is the output of "boostdep --list-exceptions"
 
-    x = {}
+    excludedmodules = {}
 
     module = None
 
@@ -117,22 +117,22 @@ def read_exceptions():
 
             line = line.rstrip()
 
-            m = re.match( '(.*):$', line )
+            matches = re.match( '(.*):$', line )
             
-            if m:
+            if matches:
 
-                module = m.group( 1 ).replace( '~', '/' )
+                module = matches.group( 1 ).replace( '~', '/' )
 
             else:
 
                 header = line.lstrip()
-                x[ header ] = module
+                excludedmodules[ header ] = module
 
-    return x
+    return excludedmodules
 
 def read_gitmodules():
 
-    gm = []
+    gitmodules = []
 
     with open( '.gitmodules', 'r' ) as f:
 
@@ -140,25 +140,25 @@ def read_gitmodules():
 
             line = line.strip()
 
-            m = re.match( 'path[ \t]*=[ \t]*(.*)$', line )
+            matches = re.match( 'path[ \t]*=[ \t]*(.*)$', line )
 
-            if m:
+            if matches:
 
-                gm.append( m.group( 1 ) )
+                gitmodules.append( matches.group( 1 ) )
                 
-    return gm
+    return gitmodules
 
-def install_modules( deps, x, gm, git_args ):
+def install_modules( deps, excludedmodules, gitmodules, git_args ):
 
     modules = []
 
-    for m, i in deps.items():
+    for module, i in deps.items():
 
         if not i:
 
-            modules += [ m ]
+            modules += [ module ]
 
-            deps[ m ] = 1 # mark as installed
+            deps[ module ] = 1 # mark as installed
 
 
     if len( modules ) == 0:
@@ -174,9 +174,9 @@ def install_modules( deps, x, gm, git_args ):
 
     os.system( command );
 
-    for m in modules:
+    for module in modules:
 
-        scan_module_dependencies( m, x, gm, deps, [ 'include', 'src' ] )
+        scan_module_dependencies( module, excludedmodules, gitmodules, deps, [ 'include', 'src' ] )
 
     return len( modules )
 
@@ -206,15 +206,15 @@ if( __name__ == "__main__" ):
 
     # vprint( '-I:', args.include )
 
-    x = read_exceptions()
-    # vprint( 'Exceptions:', x )
+    excludedmodules = read_exceptions()
+    # vprint( 'Exceptions:', excludedmodules )
 
-    gm = read_gitmodules()
-    # vprint( '.gitmodules:', gm )
+    gitmodules = read_gitmodules()
+    # vprint( '.gitmodules:', gitmodules )
 
-    m = args.library
+    module = args.library
 
-    deps = { m : 1 }
+    deps = { module : 1 }
 
     dirs = [ 'include', 'src', 'test' ]
 
@@ -224,9 +224,9 @@ if( __name__ == "__main__" ):
 
     # vprint( 'Directories:', dirs )
 
-    scan_module_dependencies( m, x, gm, deps, dirs )
+    scan_module_dependencies( module, excludedmodules, gitmodules, deps, dirs )
 
     # vprint( 'Dependencies:', deps )
 
-    while install_modules( deps, x, gm, args.git_args ):
+    while install_modules( deps, excludedmodules, gitmodules, args.git_args ):
         pass
